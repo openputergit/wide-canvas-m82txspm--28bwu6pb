@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        .image-container {
+            position: relative;
+            overflow: hidden;
+        }
+        .image-container img {
+            transition: transform 0.3s ease;
+        }
+        .image-container:hover img {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="loading" id="loadingScreen">
+        <div class="text-center">
+            <i class="bi bi-arrow-repeat animate-spin text-4xl"></i>
+            <p class="mt-2">Processing...</p>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-4">Face Recognition Gallery</h1>
+            <p class="text-gray-600">Upload your photo to find similar faces in your gallery</p>
+        </div>
+
+        <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 mb-8">
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="photo-upload">
+                    Upload Photo
+                </label>
+                <input type="file" 
+                       id="photo-upload" 
+                       accept="image/*"
+                       class="hidden" 
+                       onChange="handleFileUpload(event)">
+                <div class="flex items-center justify-center w-full">
+                    <label for="photo-upload" class="w-full flex flex-col items-center px-4 py-6 bg-white rounded-lg shadow-lg tracking-wide border border-blue-500 cursor-pointer hover:bg-blue-500 hover:text-white transition-colors duration-200">
+                        <i class="bi bi-cloud-upload text-3xl"></i>
+                        <span class="mt-2 text-base">Select a photo</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div id="preview" class="hidden mb-8">
+            <h2 class="text-xl font-semibold mb-4">Preview</h2>
+            <div class="max-w-sm mx-auto">
+                <img id="preview-image" src="" alt="Preview" class="w-full h-auto rounded-lg shadow-lg">
+            </div>
+        </div>
+
+        <div id="results" class="hidden">
+            <h2 class="text-xl font-semibold mb-4">Similar Faces Found</h2>
+            <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Results will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let userId = localStorage.getItem('userId') || `user-${Date.now()}`;
+        const appSlug = 'face-recognition-app';
+        
+        if (!localStorage.getItem('userId')) {
+            localStorage.setItem('userId', userId);
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Show loading screen
+            document.getElementById('loadingScreen').style.display = 'flex';
+
+            try {
+                // Show preview
+                const preview = document.getElementById('preview');
+                const previewImage = document.getElementById('preview-image');
+                preview.classList.remove('hidden');
+                previewImage.src = URL.createObjectURL(file);
+
+                // Upload file
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('userId', userId);
+                formData.append('appSlug', appSlug);
+
+                const uploadResponse = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/storage/upload', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer nB4nQkauj3e43AhXC1HXzjIaA4L2'
+                    },
+                    body: formData
+                });
+
+                const uploadResult = await uploadResponse.json();
+
+                // Analyze image using AI
+                const aiResponse = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/ai', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer nB4nQkauj3e43AhXC1HXzjIaA4L2',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        messages: [{
+                            role: "user",
+                            content: [
+                                {
+                                    type: "text",
+                                    text: "Please analyze this image for faces and their features"
+                                },
+                                {
+                                    type: "image_url",
+                                    image_url: {
+                                        url: uploadResult.url
+                                    }
+                                }
+                            ]
+                        }]
+                    })
+                });
+
+                const aiResult = await aiResponse.json();
+
+                // Store the analysis in database
+                await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/db', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer nB4nQkauj3e43AhXC1HXzjIaA4L2',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: userId,
+                        appSlug: appSlug,
+                        action: 'create',
+                        table: 'faces',
+                        data: {
+                            imageUrl: uploadResult.url,
+                            analysis: aiResult.message,
+                            timestamp: new Date().toISOString()
+                        }
+                    })
+                });
+
+                // Fetch all stored faces
+                const dbResponse = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/db', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer nB4nQkauj3e43AhXC1HXzjIaA4L2',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: userId,
+                        appSlug: appSlug,
+                        action: 'read',
+                        table: 'faces'
+                    })
+                });
+
+                const dbResult = await dbResponse.json();
+
+                // Display results
+                const gallery = document.getElementById('gallery');
+                gallery.innerHTML = '';
+                
+                dbResult.data.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'image-container rounded-lg overflow-hidden shadow-lg';
+                    div.innerHTML = `
+                        <img src="${item.data.imageUrl}" alt="Found face" class="w-full h-48 object-cover">
+                        <div class="p-4 bg-white">
+                            <p class="text-sm text-gray-600">${new Date(item.data.timestamp).toLocaleDateString()}</p>
+                        </div>
+                    `;
+                    gallery.appendChild(div);
+                });
+
+                document.getElementById('results').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred while processing your request.');
+            } finally {
+                document.getElementById('loadingScreen').style.display = 'none';
+            }
+        }
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
